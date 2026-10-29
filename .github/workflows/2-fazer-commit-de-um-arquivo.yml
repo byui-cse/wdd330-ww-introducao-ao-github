@@ -1,0 +1,68 @@
+name: Passo 2 # Fazer o commit de um arquivo
+
+# Verifica se o aluno concluiu as tarefas do passo 2.
+# - Roda quando o aluno envia um commit para o branch 'primeiro-branch' que altera o arquivo 'PERFIL.md'.
+
+on:
+  push:
+    branches:
+      - "primeiro-branch"
+    paths:
+      - "PERFIL.md"
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+env:
+  STEP_3_FILE: ".github/steps/3-abrir-um-pull-request.md"
+
+jobs:
+  find_exercise:
+    name: Encontrar a issue do exercício
+    uses: skills/exercise-toolkit/.github/workflows/find-exercise-issue.yml@v0.7.0
+    with:
+      issue-title-text: "Exercício"
+
+  post_next_step_content:
+    name: Publicar o conteúdo do próximo passo
+    needs: [find_exercise]
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_REPOSITORY: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ needs.find_exercise.outputs.issue-number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Criar comentário - passo concluído
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          file: .github/templates/passo-concluido.md
+          vars: |
+            next_step_number: 3
+
+      - name: Criar comentário - conteúdo do passo
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: ${{ env.STEP_3_FILE }}
+
+      - name: Criar comentário - acompanhando o progresso
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: .github/templates/acompanhando-progresso.md
+
+      - name: Desativar este workflow e ativar o próximo
+        run: |
+          gh workflow disable "${{github.workflow}}"
+          gh workflow enable "Passo 3"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

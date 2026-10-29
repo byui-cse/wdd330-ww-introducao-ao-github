@@ -1,0 +1,149 @@
+name: Passo 3 # Abrir um pull request
+
+# Verifica se o aluno concluiu as tarefas do passo 3.
+# - Roda quando o aluno cria ou edita o pull request.
+# - Confere o título e a descrição do pull request e comenta na issue.
+# - Se tudo estiver certo, o workflow é desativado para não rodar de novo.
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+env:
+  STEP_4_FILE: ".github/steps/4-fazer-merge-do-pull-request.md"
+
+jobs:
+  find_exercise:
+    if: |
+      !github.event.repository.is_template &&
+      github.head_ref == 'primeiro-branch'
+    name: Encontrar a issue do exercício
+    uses: skills/exercise-toolkit/.github/workflows/find-exercise-issue.yml@v0.7.0
+    with:
+      issue-title-text: "Exercício"
+
+  check_step_work:
+    name: Conferir o trabalho do passo
+    runs-on: ubuntu-latest
+    needs: find_exercise
+    env:
+      ISSUE_REPOSITORY: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ needs.find_exercise.outputs.issue-number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Encontrar o último comentário
+        id: find-last-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          direction: last
+
+      - name: Atualizar comentário - conferindo o trabalho
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          comment-id: ${{ steps.find-last-comment.outputs.comment-id }}
+          file: .github/templates/conferindo-trabalho.md
+          edit-mode: replace
+
+      # INÍCIO: Conferir o exercício prático
+
+      - name: Conferir o título do pull request
+        id: check-pr-title
+        continue-on-error: true
+        uses: skills/action-keyphrase-checker@v1
+        with:
+          keyphrase: "Adicionar meu primeiro arquivo"
+          text: ${{ github.event.pull_request.title }}
+          case-sensitive: false
+
+      - name: Conferir se a descrição do pull request não está vazia
+        id: check-pr-description
+        continue-on-error: true
+        run: |
+          if [ -n "$PR_BODY" ]; then
+            echo "STEP_MESSAGE=Descrição do pull request" >> $GITHUB_OUTPUT
+          else
+            echo "STEP_MESSAGE=A descrição do pull request está vazia" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+
+      - name: Atualizar comentário - resultado do passo
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          comment-id: ${{ steps.find-last-comment.outputs.comment-id }}
+          file: .github/templates/resultado-do-passo.md
+          edit-mode: replace
+          vars: |
+            step_number: 3
+            results_table:
+              - description: "Título do pull request: Adicionar meu primeiro arquivo"
+                passed: ${{ steps.check-pr-title.outcome == 'success' }}
+              - description: ${{ steps.check-pr-description.outputs.STEP_MESSAGE }}
+                passed: ${{ steps.check-pr-description.outcome == 'success' }}
+
+      - name: Falhar se alguma verificação não passou
+        if: contains(steps.*.outcome, 'failure')
+        run: exit 1
+
+  post_next_step_content:
+    name: Publicar o conteúdo do próximo passo
+    needs: [find_exercise, check_step_work]
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_REPOSITORY: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ needs.find_exercise.outputs.issue-number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Criar comentário - passo concluído
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: .github/templates/passo-concluido.md
+          vars: |
+            next_step_number: 4
+
+      - name: Criar comentário - conteúdo do passo
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: ${{ env.STEP_4_FILE }}
+
+      - name: Criar comentário - acompanhando o progresso
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: .github/templates/acompanhando-progresso.md
+
+      - name: Desativar este workflow e ativar o próximo
+        run: |
+          gh workflow disable "${{github.workflow}}"
+          gh workflow enable "Passo 4"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
